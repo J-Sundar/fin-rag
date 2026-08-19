@@ -53,7 +53,7 @@ NORMALIZE_EMBEDDINGS   = True     # Required for cosine similarity with Qdrant
 # LLM (Groq)
 # ---------------------------------------------------------------------------
 GROQ_API_KEY   = os.getenv("GROQ_API_KEY")   # Read from .env or host env vars
-GROQ_MODEL     = "llama-3.1-8b-instant"
+GROQ_MODEL = "openai/gpt-oss-20b"
 LLM_TEMPERATURE = 0   # Low temp = deterministic, factual answers
 
 # The exact refusal string the LLM must emit when context is insufficient.

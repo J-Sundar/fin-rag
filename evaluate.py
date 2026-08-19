@@ -366,7 +366,7 @@ def run_evaluation(expand: bool = True, retrieval_only: bool = False):
         print(f"  [{qid:02d}/{len(positive_items)}] {question[:70]}...")
 
         search_query   = expand_query(question, groq_llm) if expand else question
-        retrieved_docs = ensemble_retriever.invoke(search_query)
+        retrieved_docs = ensemble_retriever.invoke(search_query)[:TOP_K]
 
         hit  = compute_hit(retrieved_docs, expected)
         rank = compute_rank(retrieved_docs, expected)
