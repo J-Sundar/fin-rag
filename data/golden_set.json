@@ -1,0 +1,187 @@
+[
+  {
+    "id": 1,
+    "question": "What disclosures must a Regulated Entity make to borrowers before loan sanction under digital lending guidelines?",
+    "expected_source": "rbi_digital_lending_directions_2025.md",
+    "category": "Digital Lending"
+  },
+  {
+    "id": 2,
+    "question": "What is the cooling-off period available to borrowers under digital lending directions?",
+    "expected_source": "rbi_digital_lending_directions_2025.md",
+    "category": "Digital Lending"
+  },
+  {
+    "id": 3,
+    "question": "What is a Key Fact Statement and what must it contain under RBI digital lending rules?",
+    "expected_source": "rbi_digital_lending_directions_2025.md",
+    "category": "Digital Lending"
+  },
+  {
+    "id": 4,
+    "question": "Can a Lending Service Provider directly collect repayments from borrowers?",
+    "expected_source": "rbi_digital_lending_directions_2025.md",
+    "category": "Digital Lending"
+  },
+  {
+    "id": 5,
+    "question": "What data is a digital lending app permitted to collect from a borrower's mobile device?",
+    "expected_source": "rbi_digital_lending_directions_2025.md",
+    "category": "Digital Lending"
+  },
+  {
+    "id": 6,
+    "question": "What are the RBI guidelines on automatic credit limit increases for digital loans?",
+    "expected_source": "rbi_digital_lending_directions_2025.md",
+    "category": "Digital Lending"
+  },
+  {
+    "id": 7,
+    "question": "What grievance redressal mechanism must a digital lender provide to borrowers?",
+    "expected_source": "rbi_digital_lending_directions_2025.md",
+    "category": "Digital Lending"
+  },
+  {
+    "id": 8,
+    "question": "What are the rules for recovery agents engaged by digital lenders?",
+    "expected_source": "rbi_digital_lending_directions_2025.md",
+    "category": "Digital Lending"
+  },
+  {
+    "id": 9,
+    "question": "What is the definition of a Politically Exposed Person under RBI KYC norms?",
+    "expected_source": "rbi_master_direction_kyc.md",
+    "category": "KYC"
+  },
+  {
+    "id": 10,
+    "question": "What documents are acceptable as proof of address under the RBI KYC Master Direction?",
+    "expected_source": "rbi_master_direction_kyc.md",
+    "category": "KYC"
+  },
+  {
+    "id": 11,
+    "question": "What are the Customer Due Diligence requirements for low-risk customers?",
+    "expected_source": "rbi_master_direction_kyc.md",
+    "category": "KYC"
+  },
+  {
+    "id": 12,
+    "question": "What is the Central KYC Records Registry and how must banks use it?",
+    "expected_source": "rbi_master_direction_kyc.md",
+    "category": "KYC"
+  },
+  {
+    "id": 13,
+    "question": "What are the requirements for Video-based Customer Identification Process?",
+    "expected_source": "rbi_master_direction_kyc.md",
+    "category": "KYC"
+  },
+  {
+    "id": 14,
+    "question": "Under what conditions can a bank restrict or close an account due to KYC non-compliance?",
+    "expected_source": "rbi_master_direction_kyc.md",
+    "category": "KYC"
+  },
+  {
+    "id": 15,
+    "question": "What are the periodic KYC update requirements for different customer risk categories?",
+    "expected_source": "rbi_master_direction_kyc.md",
+    "category": "KYC"
+  },
+  {
+    "id": 16,
+    "question": "What transaction limits apply to accounts opened using simplified KYC measures?",
+    "expected_source": "rbi_master_direction_kyc.md",
+    "category": "KYC"
+  },
+  {
+    "id": 17,
+    "question": "What is the net worth requirement for entities seeking authorisation as payment aggregators?",
+    "expected_source": "rbi_payment_aggregators_2025.md",
+    "category": "Payment Aggregators"
+  },
+  {
+    "id": 18,
+    "question": "What are the KYC and due diligence requirements for merchants onboarded by payment aggregators?",
+    "expected_source": "rbi_payment_aggregators_2025.md",
+    "category": "Payment Aggregators"
+  },
+  {
+    "id": 19,
+    "question": "What are the escrow account requirements for payment aggregators handling merchant funds?",
+    "expected_source": "rbi_payment_aggregators_2025.md",
+    "category": "Payment Aggregators"
+  },
+  {
+    "id": 20,
+    "question": "What categories of merchants are prohibited from being onboarded by payment aggregators?",
+    "expected_source": "rbi_payment_aggregators_2025.md",
+    "category": "Payment Aggregators"
+  },
+  {
+    "id": 21,
+    "question": "What is the prescribed timeline for settlement of funds to merchants by payment aggregators?",
+    "expected_source": "rbi_payment_aggregators_2025.md",
+    "category": "Payment Aggregators"
+  },
+  {
+    "id": 22,
+    "question": "What baseline security and technology requirements apply to payment aggregators?",
+    "expected_source": "rbi_payment_aggregators_2025.md",
+    "category": "Payment Aggregators"
+  },
+  {
+    "id": 23,
+    "question": "What is the definition of a payment aggregator under RBI guidelines?",
+    "expected_source": "rbi_payment_aggregators_2025.md",
+    "category": "Payment Aggregators"
+  },
+  {
+    "id": 24,
+    "question": "What reporting obligations do payment aggregators have towards RBI?",
+    "expected_source": "rbi_payment_aggregators_2025.md",
+    "category": "Payment Aggregators"
+  },
+  {
+    "id": 25,
+    "question": "What are the capital and governance requirements for payment aggregator authorisation?",
+    "expected_source": "rbi_payment_aggregators_2025.md",
+    "category": "Payment Aggregators"
+  },
+  {
+    "id": 26,
+    "question": "What is the current repo rate set by the RBI's Monetary Policy Committee?",
+    "expected_source": null,
+    "category": "Out-of-corpus",
+    "type": "negative"
+  },
+  {
+    "id": 27,
+    "question": "What are SEBI's disclosure requirements for insider trading and unpublished price sensitive information under the PIT Regulations?",
+    "expected_source": null,
+    "category": "Out-of-corpus",
+    "type": "negative"
+  },
+  {
+    "id": 28,
+    "question": "What is the process for a company to file for voluntary liquidation under the Insolvency and Bankruptcy Code?",
+    "expected_source": null,
+    "category": "Out-of-corpus",
+    "type": "negative"
+  },
+  {
+    "id": 29,
+    "question": "What are the Basel III capital adequacy requirements applicable to scheduled commercial banks in India?",
+    "expected_source": null,
+    "category": "Out-of-corpus",
+    "type": "negative"
+  },
+  {
+    "id": 30,
+    "question": "What are SEBI's listing requirements for Real Estate Investment Trusts (REITs)?",
+    "expected_source": null,
+    "category": "Out-of-corpus",
+    "type": "negative"
+  }
+]

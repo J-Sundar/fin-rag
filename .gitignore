@@ -1,0 +1,43 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+
+# Data 
+data/raw_pdfs/
+data/processed/
+data/qdrant_db/
+data/eval_results/
+
+
+# ML
+*.pt
+*.pth
+*.bin
+*.safetensors
+models/
+artifacts/
+
+
+# IDE
+.vscode/
+.idea/
+
+
+# OS
+.DS_Store
+Thumbs.db

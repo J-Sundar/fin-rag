@@ -1,0 +1,47 @@
+# ==========================================
+# Core Orchestration (LangChain Ecosystem)
+# ==========================================
+langchain
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-groq
+langchain-huggingface
+langchain-qdrant
+langchain-classic
+
+# ==========================================
+# Module 1: Ingestion & Parsing
+# ==========================================
+docling
+
+# ==========================================
+# Module 2 & 3: Embeddings & Vector Store
+# ==========================================
+sentence-transformers
+transformers
+torch
+qdrant-client
+
+# ==========================================
+# Module 4: Retrieval
+# ==========================================
+# Required by BM25Retriever from langchain_community
+rank-bm25
+
+# ==========================================
+# Module 5: Generation (LLM)
+# ==========================================
+groq
+
+# ==========================================
+# Frontend
+# ==========================================
+streamlit
+
+# ==========================================
+# Utilities
+# ==========================================
+python-dotenv
+tqdm
+numpy

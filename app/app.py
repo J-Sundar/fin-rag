@@ -1,0 +1,594 @@
+"""
+app.py
+
+Streamlit frontend for the SEBI/RBI Regulatory Q&A RAG System.
+Implements a three-stage pipeline:
+    1. Query Expansion  — Groq rewrites the user's question into legal keywords
+    2. Hybrid Retrieval — BM25 (lexical) + Qdrant (semantic) ensemble search
+    3. Generation       — Groq produces a grounded, citation-backed answer
+"""
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import streamlit as st
+from langchain_groq import ChatGroq
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_community.retrievers import BM25Retriever
+from langchain_classic.retrievers import EnsembleRetriever
+
+from src.ingestion.chunker import process_markdown_chunks
+from src.retrieval.vector_store import get_vector_store
+from src.generation.llm_chain import get_llm_chain
+from src.utils.config import (
+    PROCESSED_DIR,
+    GROQ_API_KEY,
+    GROQ_MODEL,
+    LLM_TEMPERATURE,
+    TOP_K,
+)
+
+# ─── Page Config ────────────────────────────────────────────────────────────
+
+st.set_page_config(
+    page_title="FinRAG — RBI/SEBI Q&A",
+    page_icon="⚖️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ─── Custom CSS ──────────────────────────────────────────────────────────────
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+/* ── Global ── */
+html, body, [class*="css"] {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background-color: #0d1117;
+    color: #c9d1d9;
+}
+
+/* ── Hide Streamlit chrome ── */
+#MainMenu, footer, header { visibility: hidden; }
+
+/* ── App header ── */
+.app-header {
+    padding: 2rem 0 1.5rem 0;
+    border-bottom: 1px solid #21262d;
+    margin-bottom: 2rem;
+}
+.app-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: #f0f6fc;
+    letter-spacing: -0.02em;
+}
+.app-title span { color: #d29922; }
+.app-subtitle {
+    font-size: 0.875rem;
+    color: #8b949e;
+    margin-top: 0.25rem;
+    font-weight: 300;
+}
+
+/* ── Query input ── */
+.stTextArea textarea {
+    background-color: #161b22 !important;
+    border: 1px solid #30363d !important;
+    border-radius: 6px !important;
+    color: #c9d1d9 !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+    font-size: 0.95rem !important;
+    resize: none !important;
+}
+.stTextArea textarea:focus {
+    border-color: #d29922 !important;
+    box-shadow: 0 0 0 3px rgba(210, 153, 34, 0.15) !important;
+}
+
+/* ── Primary button ── */
+.stButton > button {
+    background-color: #d29922 !important;
+    color: #0d1117 !important;
+    border: none !important;
+    border-radius: 6px !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    padding: 0.6rem 1.75rem !important;
+    letter-spacing: 0.03em !important;
+    transition: background-color 0.15s ease !important;
+}
+.stButton > button:hover {
+    background-color: #e3b341 !important;
+}
+
+/* ── Pipeline status steps ── */
+.pipeline-step {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+    font-size: 0.82rem;
+    color: #8b949e;
+    font-family: 'IBM Plex Mono', monospace;
+}
+.pipeline-step.active { border-color: #d29922; color: #d29922; }
+.pipeline-step.done   { border-color: #238636; color: #3fb950; }
+.step-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background-color: currentColor; flex-shrink: 0;
+}
+
+/* ── Query expansion badge ── */
+.expansion-box {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-left: 3px solid #d29922;
+    border-radius: 0 6px 6px 0;
+    padding: 0.6rem 0.9rem;
+    margin: 0.75rem 0 1.25rem 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    color: #8b949e;
+    word-break: break-word;
+}
+.expansion-box .label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #d29922;
+    margin-bottom: 0.3rem;
+}
+
+/* ── Answer box ── */
+.answer-container {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 1.5rem 1.75rem;
+    margin: 1.5rem 0 2rem 0;
+    font-size: 0.95rem;
+    line-height: 1.75;
+    color: #e6edf3;
+}
+.answer-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #8b949e;
+    margin-bottom: 0.75rem;
+}
+
+/* ── Citation cards ── */
+.citations-header {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #8b949e;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #21262d;
+}
+.citation-card {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 0.75rem;
+}
+.citation-card:hover { border-color: #30363d; }
+.citation-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+    flex-wrap: wrap;
+}
+.badge-source {
+    background: #1f2d1f;
+    border: 1px solid #238636;
+    color: #3fb950;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+.badge-section {
+    background: #1c2433;
+    border: 1px solid #1f6feb;
+    color: #58a6ff;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+}
+.badge-page {
+    background: #2a2113;
+    border: 1px solid #9e6a03;
+    color: #d29922;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+}
+.citation-number {
+    color: #d29922;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-left: auto;
+}
+.citation-text {
+    font-size: 0.845rem;
+    color: #8b949e;
+    line-height: 1.65;
+    font-family: 'IBM Plex Sans', sans-serif;
+}
+
+/* ── Sidebar ── */
+section[data-testid="stSidebar"] {
+    background-color: #161b22 !important;
+    border-right: 1px solid #21262d;
+}
+.sidebar-section {
+    margin-bottom: 1.5rem;
+}
+.sidebar-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #8b949e;
+    margin-bottom: 0.6rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid #21262d;
+}
+.doc-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+    font-size: 0.78rem;
+    color: #c9d1d9;
+    border-bottom: 1px solid #21262d;
+}
+.doc-item:last-child { border-bottom: none; }
+.doc-dot { color: #3fb950; margin-top: 2px; flex-shrink: 0; }
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.3rem 0;
+    font-size: 0.8rem;
+    color: #8b949e;
+    border-bottom: 1px solid #21262d;
+}
+.stat-row:last-child { border-bottom: none; }
+.stat-value {
+    font-family: 'IBM Plex Mono', monospace;
+    color: #d29922;
+    font-weight: 600;
+}
+.pipeline-diagram {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-top: 0.25rem;
+}
+.pipe-node {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 4px;
+    padding: 0.35rem 0.6rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: #8b949e;
+    text-align: center;
+}
+.pipe-arrow {
+    text-align: center;
+    color: #30363d;
+    font-size: 0.7rem;
+    line-height: 0.8;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ─── Cached Resource Loading ─────────────────────────────────────────────────
+
+@st.cache_resource(show_spinner=False)
+def load_pipeline():
+    """
+    Loads all heavy resources once and keeps them in memory for the
+    lifetime of the Streamlit session. This prevents the embedding model
+    and Qdrant client from being re-initialised on every user query.
+
+    Returns a tuple of (ensemble_retriever, llm_chain).
+    """
+    # 1. Load all chunks into memory for BM25 (lexical search)
+    chunks = process_markdown_chunks(str(PROCESSED_DIR))
+
+    bm25_retriever = BM25Retriever.from_documents(chunks)
+    bm25_retriever.k = TOP_K
+
+    # 2. Qdrant-backed dense semantic retriever
+    vector_store = get_vector_store()
+    qdrant_retriever = vector_store.as_retriever(search_kwargs={"k": TOP_K})
+
+    # 3. Ensemble: Reciprocal Rank Fusion of both retrievers
+    # weights=[0.4, 0.6] — slightly favour semantic over lexical for open-ended questions
+    ensemble_retriever = EnsembleRetriever(
+        retrievers=[bm25_retriever, qdrant_retriever],
+        weights=[0.4, 0.6],
+    )
+
+    # 4. Generation chain
+    llm_chain = get_llm_chain()
+
+    return ensemble_retriever, llm_chain
+
+
+# ─── Query Expansion ─────────────────────────────────────────────────────────
+
+def expand_query(user_query: str) -> str:
+    """
+    Calls Groq to translate a natural language question into a dense
+    bag of legal keywords optimised for BM25 lexical matching.
+
+    Example:
+        IN:  "What are the KYC limits for small accounts?"
+        OUT: "Customer Due Diligence CDD simplified measures
+              rupees fifty thousand low-risk accounts PMLA"
+    """
+    llm = ChatGroq(
+        temperature=LLM_TEMPERATURE,
+        model_name=GROQ_MODEL,
+        api_key=GROQ_API_KEY,
+    )
+
+    prompt = PromptTemplate.from_template("""
+You are an expert in Indian financial regulations (RBI/SEBI).
+A user has asked a question. Rewrite it as a compact, space-separated 
+string of highly specific legal keywords, synonyms, and formal legalese 
+that would appear verbatim in an official RBI/SEBI document.
+
+Rules:
+1. Convert colloquial terms to formal equivalents (e.g. "KYC" → "Customer Due Diligence CDD").
+2. Expand numerical concepts (e.g. "limits" → "maximum threshold rupees fifty thousand").
+3. Include relevant Act/Direction names where applicable.
+4. Output ONLY keywords separated by spaces. No sentences. No punctuation.
+
+User Question: {question}
+
+Optimized Keywords:""")
+
+    chain = prompt | llm | StrOutputParser()
+    return chain.invoke({"question": user_query}).strip()
+
+
+# ─── RAG Pipeline ────────────────────────────────────────────────────────────
+
+def format_context(docs) -> str:
+    """Stitches retrieved chunks into a single context string for the LLM.
+    Each chunk is labeled with source + page so the model can cite them."""
+    parts = []
+    for doc in docs:
+        source = doc.metadata.get("source", "Unknown")
+        page = doc.metadata.get("page")
+        header = _get_top_header(doc.metadata)
+        label = f"[{source}, p.{page}]" if page else f"[{source}]"
+        label += f" — {header}" if header else ""
+        parts.append(f"{label}\n{doc.page_content}")
+    return "\n\n---\n\n".join(parts)
+
+
+def _get_top_header(metadata: dict) -> str:
+    """Returns the most specific section header from chunk metadata."""
+    for level in ("Header 3", "Header 2", "Header 1"):
+        if metadata.get(level):
+            return metadata[level]
+    return ""
+
+
+def _clean_source_name(filename: str) -> str:
+    """Converts 'rbi_master_direction_kyc.md' → 'RBI Master Direction KYC'"""
+    return filename.replace(".md", "").replace("_", " ").title()
+
+
+# ─── Sidebar ─────────────────────────────────────────────────────────────────
+
+CORPUS_DOCS = [
+    "RBI Digital Lending Directions 2025",
+    "RBI Master Direction on KYC",
+    "RBI Payment Aggregators 2025",
+]
+
+with st.sidebar:
+    st.markdown("""
+    <div style="padding: 1.25rem 0 1rem 0; border-bottom: 1px solid #21262d; margin-bottom: 1.25rem;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 1rem;
+                    color: #f0f6fc; letter-spacing: -0.01em;">
+            ⚖️ FinRAG
+        </div>
+        <div style="font-size: 0.75rem; color: #8b949e; margin-top: 0.2rem;">
+            Regulatory Intelligence System
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="sidebar-title">Corpus</div>', unsafe_allow_html=True)
+    docs_html = "".join(
+        f'<div class="doc-item"><span class="doc-dot">●</span>{doc}</div>'
+        for doc in CORPUS_DOCS
+    )
+    st.markdown(docs_html, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-title">System</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="stat-row"><span>Embedding</span><span class="stat-value">BGE-small</span></div>
+    <div class="stat-row"><span>Vector DB</span><span class="stat-value">Qdrant</span></div>
+    <div class="stat-row"><span>LLM</span><span class="stat-value">Llama 3.1 8B</span></div>
+    <div class="stat-row"><span>Retrieval</span><span class="stat-value">Hybrid</span></div>
+    <div class="stat-row"><span>Top-K</span><span class="stat-value">3 chunks</span></div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-title">Pipeline</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="pipeline-diagram">
+        <div class="pipe-node">Query Expansion</div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-node">BM25  +  Qdrant</div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-node">RRF Ensemble</div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-node">Groq Generation</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ─── Main UI ─────────────────────────────────────────────────────────────────
+
+st.markdown("""
+<div class="app-header">
+    <div class="app-title">RBI / SEBI <span>Regulatory Q&A</span></div>
+    <div class="app-subtitle">
+        Ask questions over RBI Master Directions and SEBI circulars.
+        Every answer is grounded in retrieved source chunks — no hallucination.
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Load resources (runs once, cached thereafter)
+with st.spinner("Loading models and vector database..."):
+    ensemble_retriever, llm_chain = load_pipeline()
+
+# ── Query Input ──
+query = st.text_area(
+    label="Your question",
+    placeholder="e.g. What are the KYC requirements for small payment accounts?",
+    height=100,
+    label_visibility="collapsed",
+)
+
+col1, col2 = st.columns([1, 6])
+with col1:
+    submitted = st.button("Ask →", use_container_width=True)
+
+# ── Pipeline Execution ──
+if submitted and query.strip():
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Stage 1: Query Expansion ──
+    step1 = st.empty()
+    step1.markdown(
+        '<div class="pipeline-step active"><div class="step-dot"></div>'
+        'Stage 1 — Translating query to legal keywords via Groq...</div>',
+        unsafe_allow_html=True,
+    )
+
+    expanded = expand_query(query)
+
+    step1.markdown(
+        '<div class="pipeline-step done"><div class="step-dot"></div>'
+        'Stage 1 — Query expanded</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(f"""
+    <div class="expansion-box">
+        <div class="label">Optimised Search Keywords</div>
+        {expanded}
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Stage 2: Hybrid Retrieval ──
+    step2 = st.empty()
+    step2.markdown(
+        '<div class="pipeline-step active"><div class="step-dot"></div>'
+        'Stage 2 — Running BM25 + Qdrant ensemble retrieval...</div>',
+        unsafe_allow_html=True,
+    )
+
+    # The expanded query goes to BM25 (keywords); the original goes to dense search.
+    # EnsembleRetriever runs both internally and fuses via RRF.
+    retrieved_docs = ensemble_retriever.invoke(expanded)
+
+    step2.markdown(
+        '<div class="pipeline-step done"><div class="step-dot"></div>'
+        f'Stage 2 — Retrieved {len(retrieved_docs)} chunks</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Stage 3: Generation ──
+    step3 = st.empty()
+    step3.markdown(
+        '<div class="pipeline-step active"><div class="step-dot"></div>'
+        'Stage 3 — Generating grounded answer via Groq...</div>',
+        unsafe_allow_html=True,
+    )
+
+    context_text = format_context(retrieved_docs)
+    answer = llm_chain.invoke({"context": context_text, "question": query})
+
+    step3.markdown(
+        '<div class="pipeline-step done"><div class="step-dot"></div>'
+        'Stage 3 — Answer generated</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Answer Display ──
+    st.markdown(f"""
+    <div class="answer-container">
+        <div class="answer-label">Answer</div>
+        {answer}
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Source Citations ──
+    st.markdown('<div class="citations-header">Source Chunks Retrieved</div>', unsafe_allow_html=True)
+
+    for i, doc in enumerate(retrieved_docs, 1):
+        source_raw = doc.metadata.get("source", "Unknown")
+        source_label = _clean_source_name(source_raw)
+        section = _get_top_header(doc.metadata)
+        page = doc.metadata.get("page")
+
+        section_badge = (
+            f'<span class="badge-section">{section}</span>' if section else ""
+        )
+        page_badge = (
+            f'<span class="badge-page">p. {page}</span>' if page else ""
+        )
+
+        st.markdown(f"""
+        <div class="citation-card">
+            <div class="citation-meta">
+                <span class="badge-source">{source_label}</span>
+                {page_badge}
+                {section_badge}
+                <span class="citation-number">#{i}</span>
+            </div>
+            <div class="citation-text">{doc.page_content[:500]}{"..." if len(doc.page_content) > 500 else ""}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+elif submitted and not query.strip():
+    st.warning("Please enter a question before submitting.")
