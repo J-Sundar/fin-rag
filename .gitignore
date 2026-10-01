@@ -19,9 +19,8 @@ env/
 
 # Data 
 data/raw_pdfs/
-data/processed/
-data/qdrant_db/
 data/eval_results/
+data/qdrant_db/.lock
 
 
 # ML

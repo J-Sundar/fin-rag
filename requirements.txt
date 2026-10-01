@@ -11,12 +11,7 @@ langchain-qdrant
 langchain-classic
 
 # ==========================================
-# Module 1: Ingestion & Parsing
-# ==========================================
-docling
-
-# ==========================================
-# Module 2 & 3: Embeddings & Vector Store
+# Embeddings & Vector Store
 # ==========================================
 sentence-transformers
 transformers
@@ -24,13 +19,12 @@ torch
 qdrant-client
 
 # ==========================================
-# Module 4: Retrieval
+# Retrieval & Reranking
 # ==========================================
-# Required by BM25Retriever from langchain_community
 rank-bm25
 
 # ==========================================
-# Module 5: Generation (LLM)
+# Generation (LLM)
 # ==========================================
 groq
 
@@ -40,8 +34,15 @@ groq
 streamlit
 
 # ==========================================
-# Utilities
+# Utilities & Testing
 # ==========================================
 python-dotenv
 tqdm
+numpy
+pytest
+
+# ==========================================
+# Optional: Ingestion (Only required for build_db.py with new raw PDFs)
+# ==========================================
+# docling
 numpy
