@@ -3,17 +3,13 @@
 import os
 from src.ingestion.pdf_loader import convert_pdfs_to_markdown
 from src.ingestion.chunker import process_markdown_chunks
+from src.utils.config import RAW_PDF_DIR, PROCESSED_DIR
 
-# Use absolute or correct relative paths based on where you run the script
-RAW_DIR = "data/raw_pdfs"
-PROCESSED_DIR = "data/processed"
 
 def test_ingestion_pipeline():
     print("=== Phase 1: Testing PDF to Markdown Extraction ===")
-    # This should read the PDF and create a .md file in the processed folder
-    convert_pdfs_to_markdown(RAW_DIR, PROCESSED_DIR)
+    convert_pdfs_to_markdown(str(RAW_PDF_DIR), str(PROCESSED_DIR))
     
-    # Verify the markdown file was created
     md_files = os.listdir(PROCESSED_DIR)
     print(f"Files in processed directory: {md_files}\n")
 
