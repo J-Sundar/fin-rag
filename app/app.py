@@ -12,21 +12,17 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import streamlit as st
-from langchain_groq import ChatGroq
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_community.retrievers import BM25Retriever
-from langchain_classic.retrievers import EnsembleRetriever
 
-from src.ingestion.chunker import process_markdown_chunks
-from src.retrieval.vector_store import get_vector_store
-from src.generation.llm_chain import get_llm_chain
+from src.pipeline import load_pipeline
+from src.retrieval.query_expansion import expand_query
+from src.retrieval.reranker import rerank_documents
+from src.generation.llm_chain import format_context, _get_top_header
 from src.utils.config import (
-    PROCESSED_DIR,
-    GROQ_API_KEY,
     GROQ_MODEL,
-    LLM_TEMPERATURE,
+    EMBEDDING_MODEL_NAME,
     TOP_K,
+    RETRIEVAL_CANDIDATES_K,
+    RERANKER_MODEL_NAME,
 )
 
 # ─── Page Config ────────────────────────────────────────────────────────────
@@ -226,6 +222,16 @@ html, body, [class*="css"] {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 0.7rem;
 }
+.badge-score {
+    background: #231d3a;
+    border: 1px solid #8957e5;
+    color: #d2a8ff;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
 .citation-number {
     color: #d29922;
     font-family: 'IBM Plex Mono', monospace;
@@ -313,97 +319,10 @@ section[data-testid="stSidebar"] {
 # ─── Cached Resource Loading ─────────────────────────────────────────────────
 
 @st.cache_resource(show_spinner=False)
-def load_pipeline():
-    """
-    Loads all heavy resources once and keeps them in memory for the
-    lifetime of the Streamlit session. This prevents the embedding model
-    and Qdrant client from being re-initialised on every user query.
+def get_pipeline():
+    """Caches pipeline resources across Streamlit reruns."""
+    return load_pipeline()
 
-    Returns a tuple of (ensemble_retriever, llm_chain).
-    """
-    # 1. Load all chunks into memory for BM25 (lexical search)
-    chunks = process_markdown_chunks(str(PROCESSED_DIR))
-
-    bm25_retriever = BM25Retriever.from_documents(chunks)
-    bm25_retriever.k = TOP_K
-
-    # 2. Qdrant-backed dense semantic retriever
-    vector_store = get_vector_store()
-    qdrant_retriever = vector_store.as_retriever(search_kwargs={"k": TOP_K})
-
-    # 3. Ensemble: Reciprocal Rank Fusion of both retrievers
-    # weights=[0.4, 0.6] — slightly favour semantic over lexical for open-ended questions
-    ensemble_retriever = EnsembleRetriever(
-        retrievers=[bm25_retriever, qdrant_retriever],
-        weights=[0.4, 0.6],
-    )
-
-    # 4. Generation chain
-    llm_chain = get_llm_chain()
-
-    return ensemble_retriever, llm_chain
-
-
-# ─── Query Expansion ─────────────────────────────────────────────────────────
-
-def expand_query(user_query: str) -> str:
-    """
-    Calls Groq to translate a natural language question into a dense
-    bag of legal keywords optimised for BM25 lexical matching.
-
-    Example:
-        IN:  "What are the KYC limits for small accounts?"
-        OUT: "Customer Due Diligence CDD simplified measures
-              rupees fifty thousand low-risk accounts PMLA"
-    """
-    llm = ChatGroq(
-        temperature=LLM_TEMPERATURE,
-        model_name=GROQ_MODEL,
-        api_key=GROQ_API_KEY,
-    )
-
-    prompt = PromptTemplate.from_template("""
-You are an expert in Indian financial regulations (RBI/SEBI).
-A user has asked a question. Rewrite it as a compact, space-separated 
-string of highly specific legal keywords, synonyms, and formal legalese 
-that would appear verbatim in an official RBI/SEBI document.
-
-Rules:
-1. Convert colloquial terms to formal equivalents (e.g. "KYC" → "Customer Due Diligence CDD").
-2. Expand numerical concepts (e.g. "limits" → "maximum threshold rupees fifty thousand").
-3. Include relevant Act/Direction names where applicable.
-4. Output ONLY keywords separated by spaces. No sentences. No punctuation.
-
-User Question: {question}
-
-Optimized Keywords:""")
-
-    chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"question": user_query}).strip()
-
-
-# ─── RAG Pipeline ────────────────────────────────────────────────────────────
-
-def format_context(docs) -> str:
-    """Stitches retrieved chunks into a single context string for the LLM.
-    Each chunk is labeled with source + page so the model can cite them."""
-    parts = []
-    for doc in docs:
-        source = doc.metadata.get("source", "Unknown")
-        page = doc.metadata.get("page")
-        header = _get_top_header(doc.metadata)
-        label = f"[{source}, p.{page}]" if page else f"[{source}]"
-        label += f" — {header}" if header else ""
-        parts.append(f"{label}\n{doc.page_content}")
-    return "\n\n---\n\n".join(parts)
-
-
-def _get_top_header(metadata: dict) -> str:
-    """Returns the most specific section header from chunk metadata."""
-    for level in ("Header 3", "Header 2", "Header 1"):
-        if metadata.get(level):
-            return metadata[level]
-    return ""
 
 
 def _clean_source_name(filename: str) -> str:
@@ -441,12 +360,13 @@ with st.sidebar:
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<div class="sidebar-title">System</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="stat-row"><span>Embedding</span><span class="stat-value">BGE-small</span></div>
+    st.markdown(f"""
+    <div class="stat-row"><span>Embedding</span><span class="stat-value">{EMBEDDING_MODEL_NAME.split('/')[-1]}</span></div>
     <div class="stat-row"><span>Vector DB</span><span class="stat-value">Qdrant</span></div>
-    <div class="stat-row"><span>LLM</span><span class="stat-value">Llama 3.1 8B</span></div>
-    <div class="stat-row"><span>Retrieval</span><span class="stat-value">Hybrid</span></div>
-    <div class="stat-row"><span>Top-K</span><span class="stat-value">3 chunks</span></div>
+    <div class="stat-row"><span>LLM</span><span class="stat-value">{GROQ_MODEL.split('/')[-1]}</span></div>
+    <div class="stat-row"><span>Reranker</span><span class="stat-value">{RERANKER_MODEL_NAME.split('/')[-1]}</span></div>
+    <div class="stat-row"><span>Retrieval</span><span class="stat-value">Hybrid + Rerank</span></div>
+    <div class="stat-row"><span>Top-K</span><span class="stat-value">{TOP_K} (from {RETRIEVAL_CANDIDATES_K})</span></div>
     """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -457,7 +377,7 @@ with st.sidebar:
         <div class="pipe-arrow">↓</div>
         <div class="pipe-node">BM25  +  Qdrant</div>
         <div class="pipe-arrow">↓</div>
-        <div class="pipe-node">RRF Ensemble</div>
+        <div class="pipe-node">Cross-Encoder Reranker</div>
         <div class="pipe-arrow">↓</div>
         <div class="pipe-node">Groq Generation</div>
     </div>
@@ -478,7 +398,7 @@ st.markdown("""
 
 # Load resources (runs once, cached thereafter)
 with st.spinner("Loading models and vector database..."):
-    ensemble_retriever, llm_chain = load_pipeline()
+    ensemble_retriever, llm_chain = get_pipeline()
 
 # ── Query Input ──
 query = st.text_area(
@@ -523,34 +443,48 @@ if submitted and query.strip():
     step2 = st.empty()
     step2.markdown(
         '<div class="pipeline-step active"><div class="step-dot"></div>'
-        'Stage 2 — Running BM25 + Qdrant ensemble retrieval...</div>',
+        'Stage 2 — Running BM25 + Qdrant candidate retrieval...</div>',
         unsafe_allow_html=True,
     )
 
-    # The expanded query goes to BM25 (keywords); the original goes to dense search.
-    # EnsembleRetriever runs both internally and fuses via RRF.
-    retrieved_docs = ensemble_retriever.invoke(expanded)
+    candidate_docs = ensemble_retriever.invoke(expanded)[:RETRIEVAL_CANDIDATES_K]
 
     step2.markdown(
         '<div class="pipeline-step done"><div class="step-dot"></div>'
-        f'Stage 2 — Retrieved {len(retrieved_docs)} chunks</div>',
+        f'Stage 2 — Retrieved {len(candidate_docs)} candidates</div>',
         unsafe_allow_html=True,
     )
 
-    # ── Stage 3: Generation ──
+    # ── Stage 3: Cross-Encoder Reranking ──
     step3 = st.empty()
     step3.markdown(
         '<div class="pipeline-step active"><div class="step-dot"></div>'
-        'Stage 3 — Generating grounded answer via Groq...</div>',
+        'Stage 3 — Cross-encoder reranking candidates...</div>',
+        unsafe_allow_html=True,
+    )
+
+    retrieved_docs = rerank_documents(query=query, docs=candidate_docs, top_k=TOP_K)
+
+    step3.markdown(
+        '<div class="pipeline-step done"><div class="step-dot"></div>'
+        f'Stage 3 — Reranked to top {len(retrieved_docs)} chunks</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Stage 4: Generation ──
+    step4 = st.empty()
+    step4.markdown(
+        '<div class="pipeline-step active"><div class="step-dot"></div>'
+        'Stage 4 — Generating grounded answer via Groq...</div>',
         unsafe_allow_html=True,
     )
 
     context_text = format_context(retrieved_docs)
     answer = llm_chain.invoke({"context": context_text, "question": query})
 
-    step3.markdown(
+    step4.markdown(
         '<div class="pipeline-step done"><div class="step-dot"></div>'
-        'Stage 3 — Answer generated</div>',
+        'Stage 4 — Answer generated</div>',
         unsafe_allow_html=True,
     )
 
@@ -570,12 +504,16 @@ if submitted and query.strip():
         source_label = _clean_source_name(source_raw)
         section = _get_top_header(doc.metadata)
         page = doc.metadata.get("page")
+        score = doc.metadata.get("rerank_score")
 
         section_badge = (
             f'<span class="badge-section">{section}</span>' if section else ""
         )
         page_badge = (
             f'<span class="badge-page">p. {page}</span>' if page else ""
+        )
+        score_badge = (
+            f'<span class="badge-score">Score: {score:+.2f}</span>' if score is not None else ""
         )
 
         st.markdown(f"""
@@ -584,6 +522,7 @@ if submitted and query.strip():
                 <span class="badge-source">{source_label}</span>
                 {page_badge}
                 {section_badge}
+                {score_badge}
                 <span class="citation-number">#{i}</span>
             </div>
             <div class="citation-text">{doc.page_content[:500]}{"..." if len(doc.page_content) > 500 else ""}</div>

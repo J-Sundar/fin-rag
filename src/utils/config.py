@@ -74,9 +74,12 @@ CHUNK_OVERLAP = 100
 PAGE_BREAK_MARKER = "<!-- DOCLING_PAGE_BREAK -->"
 
 # ---------------------------------------------------------------------------
-# Retrieval
+# Retrieval & Reranking
 # ---------------------------------------------------------------------------
-TOP_K = 3   # Number of chunks to retrieve per query
+TOP_K = 5   # Number of chunks to pass to LLM context
+RETRIEVAL_CANDIDATES_K = 15  # Candidate pool size retrieved prior to reranking
+ENSEMBLE_WEIGHTS = [0.4, 0.6]  # [BM25 lexical weight, Qdrant semantic weight]
+RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 # ---------------------------------------------------------------------------
 # Logging

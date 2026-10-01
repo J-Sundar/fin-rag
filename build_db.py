@@ -4,9 +4,9 @@ import logging
 from src.ingestion.pdf_loader import convert_pdfs_to_markdown
 from src.ingestion.chunker import process_markdown_chunks
 from src.retrieval.vector_store import build_vector_store
-from src.utils.config import RAW_PDF_DIR, PROCESSED_DIR
+from src.utils.config import RAW_PDF_DIR, PROCESSED_DIR, setup_logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+setup_logging()
 logger = logging.getLogger(__name__)
 
 

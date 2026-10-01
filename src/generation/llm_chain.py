@@ -57,3 +57,24 @@ def get_llm_chain():
     )
 
     return prompt | llm | StrOutputParser()
+
+
+def _get_top_header(metadata: dict) -> str:
+    """Returns the most specific section header from chunk metadata."""
+    for level in ("Header 3", "Header 2", "Header 1"):
+        if metadata.get(level):
+            return metadata[level]
+    return ""
+
+
+def format_context(docs: list) -> str:
+    """Stitches retrieved chunks into a labeled context string for generation."""
+    parts = []
+    for doc in docs:
+        source = doc.metadata.get("source", "Unknown")
+        page = doc.metadata.get("page")
+        header = _get_top_header(doc.metadata)
+        label = f"[{source}, p.{page}]" if page else f"[{source}]"
+        label += f" — {header}" if header else ""
+        parts.append(f"{label}\n{doc.page_content}")
+    return "\n\n---\n\n".join(parts)
