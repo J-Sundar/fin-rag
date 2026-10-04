@@ -1,11 +1,12 @@
 """
 app.py
 
-Streamlit frontend for the SEBI/RBI Regulatory Q&A RAG System.
-Implements a three-stage pipeline:
-    1. Query Expansion  — Groq rewrites the user's question into legal keywords
-    2. Hybrid Retrieval — BM25 (lexical) + Qdrant (semantic) ensemble search
-    3. Generation       — Groq produces a grounded, citation-backed answer
+Streamlit frontend for the RBI Regulatory Intelligence Q&A System.
+Implements a four-stage pipeline:
+    1. Query Expansion  — Groq translates the user's question into official regulatory terms
+    2. Hybrid Retrieval — BM25 (lexical) + Qdrant (semantic) candidate retrieval
+    3. Reranking        — Cross-encoder contextual precision scoring
+    4. Generation       — Groq produces a grounded, citation-backed answer
 """
 
 import sys
@@ -28,7 +29,7 @@ from src.utils.config import (
 # ─── Page Config ────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="FinRAG — RBI/SEBI Q&A",
+    page_title="FinRAG — RBI Regulatory Q&A",
     page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -388,10 +389,10 @@ with st.sidebar:
 
 st.markdown("""
 <div class="app-header">
-    <div class="app-title">RBI / SEBI <span>Regulatory Q&A</span></div>
+    <div class="app-title">RBI Regulatory <span>Intelligence Q&A</span></div>
     <div class="app-subtitle">
-        Ask questions over RBI Master Directions and SEBI circulars.
-        Every answer is grounded in retrieved source chunks — no hallucination.
+        Ask questions over RBI Master Directions and Guidelines.
+        Every answer is grounded in retrieved source circular chunks with page citations.
     </div>
 </div>
 """, unsafe_allow_html=True)

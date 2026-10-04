@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # variable) so this prompt and evaluate.py's groundedness check can never
 # drift out of sync — both read the same constant from config.py.
 _PROMPT_TEMPLATE = """
-You are a strict, analytical regulatory assistant for Indian Finance (RBI/SEBI).
+You are a strict, analytical regulatory assistant for Reserve Bank of India (RBI) directions and guidelines.
 Use ONLY the retrieved context below to answer the question.
 
 Each context chunk is labeled with its source document and page number,

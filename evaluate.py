@@ -31,22 +31,26 @@ import time
 from pathlib import Path
 from datetime import datetime
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
+
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.retrievers import BM25Retriever
-from langchain_classic.retrievers import EnsembleRetriever
 
-from src.ingestion.chunker import process_markdown_chunks
-from src.retrieval.vector_store import get_vector_store
-from src.generation.llm_chain import get_llm_chain
+from src.pipeline import load_pipeline
+from src.retrieval.query_expansion import expand_query
+from src.retrieval.reranker import rerank_documents
+from src.generation.llm_chain import format_context
 from src.utils.config import (
     setup_logging,
-    PROCESSED_DIR,
     GROQ_API_KEY,
     GROQ_MODEL,
     LLM_TEMPERATURE,
     TOP_K,
+    RETRIEVAL_CANDIDATES_K,
+    RERANKER_MODEL_NAME,
     REFUSAL_MESSAGE,
 )
 
@@ -58,56 +62,11 @@ RESULTS_DIR     = Path("data/eval_results")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ─── Pipeline Initialisation ─────────────────────────────────────────────────
-
-def load_pipeline():
-    """Builds the same ensemble retriever and LLM chain used in app.py."""
-    logger.info("Loading chunks for BM25...")
-    chunks = process_markdown_chunks(str(PROCESSED_DIR))
-
-    bm25_retriever = BM25Retriever.from_documents(chunks)
-    bm25_retriever.k = TOP_K
-
-    logger.info("Connecting to Qdrant...")
-    vector_store     = get_vector_store()
-    qdrant_retriever = vector_store.as_retriever(search_kwargs={"k": TOP_K})
-
-    ensemble_retriever = EnsembleRetriever(
-        retrievers=[bm25_retriever, qdrant_retriever],
-        weights=[0.4, 0.6],
-    )
-
-    llm_chain = get_llm_chain()
-    logger.info("Pipeline ready.")
-    return ensemble_retriever, llm_chain
-
-
-# ─── Query Expansion ─────────────────────────────────────────────────────────
-
-def expand_query(user_query: str, llm: ChatGroq) -> str:
-    prompt = PromptTemplate.from_template("""
-You are an expert in Indian financial regulations (RBI/SEBI).
-Rewrite the question below as a compact, space-separated string of legal 
-keywords, synonyms, and formal legalese that would appear verbatim in an 
-official RBI/SEBI document.
-
-Rules:
-1. Convert colloquial terms to formal equivalents.
-2. Expand numerical concepts to words.
-3. Output ONLY keywords separated by spaces. No sentences. No punctuation.
-
-Question: {question}
-Keywords:""")
-
-    chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"question": user_query}).strip()
-
-
 # ─── LLM Judge ───────────────────────────────────────────────────────────────
 
 _JUDGE_PROMPT = PromptTemplate.from_template("""
 You are a strict evaluator of a Retrieval-Augmented Generation (RAG) system 
-built over Indian financial regulatory documents (RBI/SEBI).
+built over Reserve Bank of India (RBI) regulatory documents.
 
 Given a question, the retrieved context, and a generated answer, score two dimensions:
 
@@ -137,20 +96,39 @@ Respond with ONLY a valid JSON object. No explanation, no markdown, no preamble.
 """)
 
 
+def invoke_with_retry(chain, payload: dict, max_retries: int = 5):
+    """Executes a LangChain runnable with exponential backoff on Groq 429 errors."""
+    for attempt in range(max_retries):
+        try:
+            return chain.invoke(payload)
+        except Exception as e:
+            err = str(e).lower()
+            if "429" in err or "rate limit" in err:
+                wait = 7 * (attempt + 1)
+                logger.warning(f"Groq rate limit hit. Sleeping {wait}s before retry ({attempt + 1}/{max_retries})...")
+                time.sleep(wait)
+            else:
+                raise e
+    return chain.invoke(payload)
+
+
 def judge_answer(question: str, context: str, answer: str, llm: ChatGroq) -> dict:
     """
     Sends question + context + answer to Groq and returns faithfulness/relevance scores.
     Falls back gracefully if the LLM returns malformed JSON.
     """
     chain = _JUDGE_PROMPT | llm | StrOutputParser()
-    raw   = chain.invoke({
-        "question": question,
-        "context":  context,
-        "answer":   answer,
-    }).strip()
+    try:
+        raw = invoke_with_retry(chain, {
+            "question": question,
+            "context":  context,
+            "answer":   answer,
+        }).strip()
+    except Exception as e:
+        logger.warning(f"Judge invocation failed: {e}")
+        return {"faithfulness": None, "relevance": None, "reasoning": "judge call failed"}
 
     try:
-        # Strip accidental markdown fences before parsing
         clean = raw.replace("```json", "").replace("```", "").strip()
         return json.loads(clean)
     except json.JSONDecodeError:
@@ -187,17 +165,6 @@ def compute_rank(retrieved_docs, expected_source: str) -> int | None:
             return i
     return None
 
-
-def format_context(docs) -> str:
-    """Stitches retrieved chunks into a single context string for the LLM,
-    labeling each with source + page so the model can cite them."""
-    parts = []
-    for doc in docs:
-        source = doc.metadata.get("source", "Unknown")
-        page   = doc.metadata.get("page")
-        label  = f"[{source}, p.{page}]" if page else f"[{source}]"
-        parts.append(f"{label}\n{doc.page_content}")
-    return "\n\n---\n\n".join(parts)
 
 
 # ─── Display Helpers ─────────────────────────────────────────────────────────
@@ -288,7 +255,7 @@ def print_summary(results: list[dict], neg_results: list[dict], retrieval_only: 
     print("  EVALUATION SUMMARY")
     print("=" * 60)
     print(f"  Total questions    : {total}")
-    print(f"  Hit Rate @{TOP_K}       : {hit_rate:.1%}  ({hits}/{total})")
+    print(f"  Doc-Hit Rate @{TOP_K}   : {hit_rate:.1%}  ({hits}/{total})")
     print(f"  MRR                : {mrr:.3f}")
 
     if not retrieval_only:
@@ -300,7 +267,7 @@ def print_summary(results: list[dict], neg_results: list[dict], retrieval_only: 
             print(f"  Avg Relevance      : {sum(rel_scores)/len(rel_scores):.2f} / 5")
 
     print()
-    print("  Hit Rate by Category:")
+    print("  Doc-Hit Rate by Category:")
     for cat, (cat_hit, cat_total) in cat_hits.items():
         bar_fill = int((cat_hit / cat_total) * 20)
         bar      = "█" * bar_fill + "░" * (20 - bar_fill)
@@ -310,7 +277,7 @@ def print_summary(results: list[dict], neg_results: list[dict], retrieval_only: 
         correct = sum(1 for r in neg_results if r["correctly_refused"])
         n       = len(neg_results)
         print()
-        print(f"  Groundedness (refusal accuracy) : {correct}/{n}"
+        print(f"  Guardrail Refusal Check (negative) : {correct}/{n}"
               f"  ({correct/n:.1%})")
         if correct < n:
             print("  ⚠ At least one out-of-corpus question got a hallucinated "
@@ -324,7 +291,7 @@ def print_summary(results: list[dict], neg_results: list[dict], retrieval_only: 
 
 # ─── Main Evaluation Loop ─────────────────────────────────────────────────────
 
-def run_evaluation(expand: bool = True, retrieval_only: bool = False):
+def run_evaluation(expand: bool = True, retrieval_only: bool = False, rerank: bool = True):
     logger.info("Loading golden set...")
     with open(GOLDEN_SET_PATH, "r") as f:
         golden_set = json.load(f)
@@ -354,6 +321,7 @@ def run_evaluation(expand: bool = True, retrieval_only: bool = False):
     print(f"\nRunning evaluation — {len(positive_items)} positive"
           f" + {len(negative_items)} negative questions "
           f"| expand={'on' if expand else 'off'} "
+          f"| rerank={'on' if rerank else 'off'} "
           f"| judge={'off' if retrieval_only else 'on'}\n")
 
     # ── Positive items: retrieval + generation quality ──
@@ -365,8 +333,13 @@ def run_evaluation(expand: bool = True, retrieval_only: bool = False):
 
         print(f"  [{qid:02d}/{len(positive_items)}] {question[:70]}...")
 
-        search_query   = expand_query(question, groq_llm) if expand else question
-        retrieved_docs = ensemble_retriever.invoke(search_query)[:TOP_K]
+        search_query = expand_query(question, groq_llm) if expand else question
+
+        if rerank:
+            candidates = ensemble_retriever.invoke(search_query)[:RETRIEVAL_CANDIDATES_K]
+            retrieved_docs = rerank_documents(query=question, docs=candidates, top_k=TOP_K)
+        else:
+            retrieved_docs = ensemble_retriever.invoke(search_query)[:TOP_K]
 
         hit  = compute_hit(retrieved_docs, expected)
         rank = compute_rank(retrieved_docs, expected)
@@ -384,7 +357,7 @@ def run_evaluation(expand: bool = True, retrieval_only: bool = False):
 
         if not retrieval_only:
             context_text = format_context(retrieved_docs)
-            answer       = llm_chain.invoke({"context": context_text, "question": question})
+            answer       = invoke_with_retry(llm_chain, {"context": context_text, "question": question})
             scores       = judge_answer(question, context_text, answer, groq_llm)
 
             result.update({
@@ -395,7 +368,7 @@ def run_evaluation(expand: bool = True, retrieval_only: bool = False):
             })
 
         results.append(result)
-        time.sleep(1)  # stay within Groq free-tier rate limits
+        time.sleep(2)  # stay within Groq free-tier rate limits
 
     # ── Negative items: groundedness / refusal check ──
     for item in negative_items:
@@ -405,11 +378,17 @@ def run_evaluation(expand: bool = True, retrieval_only: bool = False):
 
         print(f"  [{qid:02d}/{len(negative_items)}] (negative) {question[:60]}...")
 
-        search_query   = expand_query(question, groq_llm) if expand else question
-        retrieved_docs = ensemble_retriever.invoke(search_query)
-        context_text   = format_context(retrieved_docs)
-        answer         = llm_chain.invoke({"context": context_text, "question": question})
-        refused        = is_correct_refusal(answer)
+        search_query = expand_query(question, groq_llm) if expand else question
+
+        if rerank:
+            candidates = ensemble_retriever.invoke(search_query)[:RETRIEVAL_CANDIDATES_K]
+            retrieved_docs = rerank_documents(query=question, docs=candidates, top_k=TOP_K)
+        else:
+            retrieved_docs = ensemble_retriever.invoke(search_query)[:TOP_K]
+
+        context_text = format_context(retrieved_docs)
+        answer       = invoke_with_retry(llm_chain, {"context": context_text, "question": question})
+        refused      = is_correct_refusal(answer)
 
         neg_results.append({
             "id":                qid,
@@ -420,7 +399,7 @@ def run_evaluation(expand: bool = True, retrieval_only: bool = False):
             "answer":            answer,
             "correctly_refused": refused,
         })
-        time.sleep(1)
+        time.sleep(2)
 
     # ── Output ──
     print_results_table(results, retrieval_only)
@@ -435,10 +414,13 @@ def run_evaluation(expand: bool = True, retrieval_only: bool = False):
             {
                 "timestamp":      timestamp,
                 "config": {
-                    "expand":         expand,
-                    "retrieval_only": retrieval_only,
-                    "top_k":          TOP_K,
-                    "model":          GROQ_MODEL,
+                    "expand":          expand,
+                    "rerank":          rerank,
+                    "reranker_model":  RERANKER_MODEL_NAME if rerank else None,
+                    "retrieval_only":  retrieval_only,
+                    "top_k":           TOP_K,
+                    "candidates_k":    RETRIEVAL_CANDIDATES_K if rerank else TOP_K,
+                    "model":           GROQ_MODEL,
                 },
                 "results":          results,
                 "negative_results": neg_results,
@@ -460,6 +442,11 @@ if __name__ == "__main__":
         help="Skip query expansion. Tests raw retrieval quality.",
     )
     parser.add_argument(
+        "--no-rerank",
+        action="store_true",
+        help="Skip cross-encoder reranking.",
+    )
+    parser.add_argument(
         "--retrieval-only",
         action="store_true",
         help="Skip generation and LLM judge. Faster, measures retrieval only. "
@@ -470,4 +457,5 @@ if __name__ == "__main__":
     run_evaluation(
         expand=not args.no_expand,
         retrieval_only=args.retrieval_only,
+        rerank=not args.no_rerank,
     )

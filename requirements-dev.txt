@@ -1,0 +1,9 @@
+# Dev & Offline Ingestion Tooling
+-r requirements.txt
+
+# Document Ingestion (Only required when parsing raw PDFs via build_db.py)
+docling==2.116.0
+
+# Code Quality
+ruff==0.16.3
+

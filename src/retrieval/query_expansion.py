@@ -12,7 +12,7 @@ from src.utils.config import (
 logger = logging.getLogger(__name__)
 
 _EXPANSION_PROMPT = PromptTemplate.from_template("""
-You are an expert search assistant for Indian financial regulations (RBI/SEBI).
+You are an expert search assistant for Reserve Bank of India (RBI) regulations.
 Your goal is to enhance the user question into an effective search query for retrieving official circular clauses.
 
 Rules:
