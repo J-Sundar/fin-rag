@@ -72,4 +72,3 @@ def get_vector_store() -> QdrantVectorStore:
         collection_name=COLLECTION_NAME,
         embedding=embeddings,
     )
-    )
