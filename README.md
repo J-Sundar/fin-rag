@@ -202,7 +202,7 @@ python evaluate.py --retrieval-only --no-rerank
 ## Live Demo
 
 Try the interactive regulatory intelligence system on Hugging Face Spaces:  
-**[Launch FinRAG Demo](https://huggingface.co/spaces/J-Sundar/fin-rag)**
+**[Launch FinRAG Demo](https://huggingface.co/spaces/The-Warlord/fin-rag)**
 
 > **Note:** The pre-indexed Qdrant vector store and processed markdown documents are tracked directly in this repository, enabling instant startup without requiring offline PDF parsing.
 
