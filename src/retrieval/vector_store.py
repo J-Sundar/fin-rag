@@ -21,15 +21,16 @@ from src.utils.config import (
 logger = logging.getLogger(__name__)
 
 
-def build_vector_store(documents) -> QdrantVectorStore:
+def build_vector_store(documents, client: QdrantClient = None) -> QdrantVectorStore:
     """
     Takes a list of chunked LangChain Documents, embeds them, and
     saves them to a persistent local Qdrant database.
     """
     embeddings = get_embedding_model()
 
-    logger.info(f"Connecting to Qdrant at {QDRANT_DB_PATH}")
-    client = QdrantClient(path=str(QDRANT_DB_PATH))
+    if client is None:
+        logger.info(f"Connecting to Qdrant at {QDRANT_DB_PATH}")
+        client = QdrantClient(path=str(QDRANT_DB_PATH))
 
     if client.collection_exists(COLLECTION_NAME):
         logger.info(f"Collection '{COLLECTION_NAME}' exists. Recreating for a fresh build...")
@@ -64,7 +65,7 @@ def get_vector_store() -> QdrantVectorStore:
         logger.info(f"Collection '{COLLECTION_NAME}' not found. Initializing from {PROCESSED_DIR}...")
         from src.ingestion.chunker import process_markdown_chunks
         chunks = process_markdown_chunks(str(PROCESSED_DIR))
-        return build_vector_store(chunks)
+        return build_vector_store(chunks, client=client)
 
     embeddings = get_embedding_model()
     return QdrantVectorStore(

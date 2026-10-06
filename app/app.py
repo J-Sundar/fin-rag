@@ -490,12 +490,9 @@ if submitted and query.strip():
     )
 
     # ── Answer Display ──
-    st.markdown(f"""
-    <div class="answer-container">
-        <div class="answer-label">Answer</div>
-        {answer}
-    </div>
-    """, unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<div class="answer-label">Answer</div>', unsafe_allow_html=True)
+        st.markdown(answer)
 
     # ── Source Citations ──
     st.markdown('<div class="citations-header">Source Chunks Retrieved</div>', unsafe_allow_html=True)
