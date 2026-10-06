@@ -12,6 +12,7 @@ from qdrant_client.http.models import Distance, VectorParams
 from src.embedding.embedder import get_embedding_model
 from src.utils.config import (
     QDRANT_DB_PATH,
+    PROCESSED_DIR,
     COLLECTION_NAME,
     EMBEDDING_DIM,
     TOP_K,
@@ -55,12 +56,20 @@ def build_vector_store(documents) -> QdrantVectorStore:
 def get_vector_store() -> QdrantVectorStore:
     """
     Returns a connection to the existing Qdrant collection for querying.
+    If the collection does not exist, automatically builds it from processed markdown chunks.
     """
-    embeddings = get_embedding_model()
     client = QdrantClient(path=str(QDRANT_DB_PATH))
 
+    if not client.collection_exists(COLLECTION_NAME):
+        logger.info(f"Collection '{COLLECTION_NAME}' not found. Initializing from {PROCESSED_DIR}...")
+        from src.ingestion.chunker import process_markdown_chunks
+        chunks = process_markdown_chunks(str(PROCESSED_DIR))
+        return build_vector_store(chunks)
+
+    embeddings = get_embedding_model()
     return QdrantVectorStore(
         client=client,
         collection_name=COLLECTION_NAME,
         embedding=embeddings,
+    )
     )

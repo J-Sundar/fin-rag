@@ -20,7 +20,7 @@ env/
 # Data 
 data/raw_pdfs/
 data/eval_results/
-data/qdrant_db/.lock
+data/qdrant_db/
 
 
 # ML
@@ -39,4 +39,5 @@ artifacts/
 
 # OS
 .DS_Store
+Thumbs.db
 Thumbs.db
