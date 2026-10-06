@@ -12,7 +12,7 @@ pinned: false
 
 [![CI](https://github.com/J-Sundar/fin-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/J-Sundar/fin-rag/actions/workflows/ci.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://huggingface.co/spaces/J-Sundar/fin-rag)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://huggingface.co/spaces/The-Warlord/fin-rag)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A production-grade, two-stage **Retrieval-Augmented Generation (RAG)** system engineered to answer complex regulatory queries over **Reserve Bank of India (RBI)** Master Directions and guidelines (Digital Lending Directions 2025, Master Direction on KYC, and Payment Aggregators Directions 2025). The architecture is document-agnostic and designed to scale seamlessly to SEBI and broader financial compliance corpora.
