@@ -99,7 +99,7 @@ In legal and financial compliance, a hallucinated answer is a critical defect. T
 
 ```
 fin-rag/
-├── app.py                      # Root entry point for Hugging Face Spaces & cloud deployment
+├── app.py                      # Root entry point for deploymnt
 ├── app/
 │   └── app.py                  # Polished Streamlit UI with multi-stage execution visualization
 ├── build_db.py                 # Ingestion pipeline: converts raw PDFs to Markdown and indexes Qdrant
@@ -201,8 +201,8 @@ python evaluate.py --retrieval-only --no-rerank
 
 ## Live Demo
 
-Try the interactive regulatory intelligence system on Hugging Face Spaces:  
-**[Launch FinRAG Demo](https://huggingface.co/spaces/The-Warlord/fin-rag)**
+Try the interactive regulatory intelligence system on Streamlit Cloud:  
+**[Launch FinRAG Demo](https://fin-rag-rbi.streamlit.app/)**
 
 > **Note:** The pre-indexed Qdrant vector store and processed markdown documents are tracked directly in this repository, enabling instant startup without requiring offline PDF parsing.
 
